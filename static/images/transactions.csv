@@ -1,0 +1,20 @@
+NRIC,ClientName,TransactionID,ItemName,ItemQuantity,TransactionDate,TotalSpent,TotalPrice
+S9629837D,Tan Kok Xuan,1,Bee hoon / Rice Vermicelli (400g),2,2024-10-28,8,4
+S9629837D,Tan Kok Xuan,1,Carrot,2,2024-10-28,8,2
+S9629837D,Tan Kok Xuan,1,Chye Sim,2,2024-10-28,8,2
+S1234567A,Test Client,2,Adult Milk Powder (Anlene) (550g),2,2024-10-28,34,28
+S1234567A,Test Client,2,Apples,2,2024-10-28,34,2
+S1234567A,Test Client,2,Carrot,2,2024-10-28,34,2
+S1234567A,Test Client,2,Chye Sim,2,2024-10-28,34,2
+S1234567A,Test Client,3,Adult Milk Powder (Anlene) (550g),2,2024-10-28,38,28
+S1234567A,Test Client,3,Bee hoon / Rice Vermicelli (400g),2,2024-10-28,38,4
+S1234567A,Test Client,3,Biscuits ((428g),2,2024-10-28,38,6
+S9629837D,Tan Kok Xuan,4,Adult Milk Powder (Anlene) (550g),2,2024-10-28,32,28
+S9629837D,Tan Kok Xuan,4,Carrot,2,2024-10-28,32,2
+S9629837D,Tan Kok Xuan,4,Chye Sim,2,2024-10-28,32,2
+S9629837D,Tan Kok Xuan,5,Adult Milk Powder (Anlene) (550g),2,2024-10-28,33,28
+S9629837D,Tan Kok Xuan,5,Apples,2,2024-10-28,33,2
+S9629837D,Tan Kok Xuan,5,Bee hoon / Rice Vermicelli (400g),1,2024-10-28,33,2
+S9629837D,Tan Kok Xuan,5,Carrot,1,2024-10-28,33,1
+S9629837D,Tan Kok Xuan,6,Adult Milk Powder (Anlene) (550g),2,2024-10-28,4,2
+S9629837D,Tan Kok Xuan,6,Biscuits ((428g),2,2024-10-28,4,2

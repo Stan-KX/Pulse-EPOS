@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+
+{% block body %}
+
+<div class="sidebar">
+    <button class="btn btn-primary" type="button" data-toggle="collapse" data-target="#sidebarContent" aria-expanded="false" aria-controls="sidebarContent">
+        <i class="fas fa-bars"></i>
+    </button>
+    <div class="collapse" id="sidebarContent">
+        <img src="/static/images/LHMSCJ_Logo_Transparent.png" alt="LHMSCJ Logo" class="logo">
+        <h2>LHJ-POS 2.0.1</h2>
+        <ul>
+            <li><a href="{{ url_for('index') }}">Log-out</a></li>
+            <li><a href="{{ url_for('mainpage') }}">Shop</a></li>
+            <li><a href="{{ url_for('admin') }}">Admin</a></li>
+            <li><a href="{{ url_for('orders') }}">Orders</a></li>
+            <li><a href="{{ url_for('inventory') }}">Inventory Management</a></li>
+        </ul>
+    </div>
+</div>
+
+<div class="parent-container">
+    <button id="download-transactions" type="button" class="btn btn-success mt-3" onclick="downloadTransactions()">Download Transactions</button>
+    <button id="download-transactions" type="button" class="btn btn-success mt-3" onclick="downloadInventory()">Download Inventory</button>
+</div>
+{% endblock %}
