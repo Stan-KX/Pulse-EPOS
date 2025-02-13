@@ -212,8 +212,7 @@ def generate_stock_dict():
     return stock_dict
 
 init_db()
-ITEMS = generate_items_dict()
-generate_items_dict()
+
 
 def get_current_gmt8_time():
     gmt8 = pytz.timezone('Asia/Singapore')  # GMT+8 timezone
@@ -277,6 +276,8 @@ def login():
 @app.route('/mainpage', methods = ['GET', 'POST'])
 @login_required
 def mainpage():
+    ITEMS = generate_items_dict()
+    generate_items_dict()
     return render_template('mainpage.html', items = ITEMS)
 
 @app.route('/query', methods = ['GET', 'POST'])
