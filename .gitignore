@@ -1,0 +1,9 @@
+*.db
+test.py
+*.log
+__pycache__/
+*.pyc
+env/
+*.pyo
+/static/images/
+/venv/

@@ -1,0 +1,38 @@
+{% extends "layout.html" %}
+
+{% block body %}
+<div class="orders-container">
+    <h1>Transaction Details</h1>
+
+    <div class="buttons-container">
+        <button id="previous" class="btn btn-lg btn-primary" disabled>Previous</button>
+        <button id="latest" class="btn btn-lg btn-primary">Fetch Latest</button>
+        <button id="next" class="btn btn-lg btn-primary" disabled>Next</button>
+    </div>
+
+    <div class="details-container">
+        <h2 id="transaction-client">Client Name:</h2>
+        <h2 id="transaction-date">Transaction Date:</h2>
+        <h2 id="transaction-id">Transaction ID:</h2>
+    </div>
+
+    <div class="table-container">
+        <table id="transaction-table" class="table table-striped table-bordered">
+            <thead>
+                <tr>
+                    <th>Item Name</th>
+                    <th>Quantity</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Transaction details will be inserted here -->
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+{% endblock %}

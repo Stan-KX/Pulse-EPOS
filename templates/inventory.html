@@ -1,0 +1,112 @@
+{% extends "layout.html" %}
+
+{% block body %}
+
+<div class="container">
+    <h1 class="text-center my-4">Inventory Management</h1>
+
+    <div class="inventory-table my-4">
+        <h3 class="text-uppercase font-weight-bold">Inventory List</h3>
+        <select class="form-control" id="movement-type">
+            <optgroup label="Stock In Options">
+                <option>Purchase</option>
+                <option>Admin Stock In</option>
+            </optgroup>
+            <optgroup label="Stock Out Options">
+                <option>Admin Stock Out</option>
+                <option>Expired</option>
+            </optgroup>
+        </select>
+        <div class="form-group">
+            <label for="search-product">Search by Name, Brand, or Type</label>
+            <input list="type-list" class="form-control" id="search-product" placeholder="Enter product name, brand, or select type">
+            <datalist id="type-list">
+                {% for type in stock_types %}
+                    <option value="{{ type }}"></option>
+                {% endfor %}
+            </datalist>
+        </div>
+        <table class="table table-striped" id="inventory-table">
+            <thead>
+                <tr>
+                    <th>Product ID</th>
+                    <th>Name</th>
+                    <th>Brand</th>
+                    <th>Bundle Size</th>
+                    <th>Current Quantity</th>
+                    <th>Quantity</th>
+                    <th>Source</th>
+                    <th>Remarks</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stock in stock %}
+                <tr>
+                    <td class="product-id">{{ stock.product_id }}</td>
+                    <td>{{ stock.name }}</td>
+                    <td>{{ stock.brand }}</td>
+                    <td>{{ stock.bundle_size }}</td>
+                    <td>{{ stock.total_quantity }}</td>
+                    <input type="hidden" class="stock-type" value="{{ stock.type }}">
+                    <td><input type="number" class="form-control movement-quantity" min="0"></td>
+                    <td>
+                        <select class="form-control movement-source">
+                            <option></option>
+                        </select>
+                    </td>
+                    <td><input type="text" class="form-control movement-remarks"></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div id="pagination-controls" class="text-center my-4"></div>
+    </div>
+
+    <div class="text-center my-4">
+        <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#addStockModal">Add New Item</button>
+    </div>
+
+    <div class="text-center my-4">
+        <button type="button" class="btn btn-success" onclick="submitStock()">Confirm</button>
+    </div>
+
+    <!-- Add Stock Modal -->
+<div class="modal fade" id="addStockModal" tabindex="-1" role="dialog" aria-labelledby="addStockModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addStockModalLabel">Add Stock</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Form with file upload -->
+                <form id="add-stock-form" action="{{ url_for('add_stock') }}" method="POST" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="product-name">Name</label>
+                        <input type="text" class="form-control" id="product-name" name="product_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="brand">Brand</label>
+                        <input type="text" class="form-control" id="brand" name="brand" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="bundle-size">Bundle Size</label>
+                        <input type="text" class="form-control" id="bundle-size" name="bundle_size" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="quantity">Quantity</label>
+                        <input type="number" class="form-control" id="quantity" name="quantity" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="price">Price (Per Bundle)</label>
+                        <input type="number" class="form-control" id="price" name="price" min="0" step="0.01" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Stock</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

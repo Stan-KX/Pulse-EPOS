@@ -1,0 +1,38 @@
+{% extends "layout.html" %}
+
+{% block body %}
+
+<div class="container">
+    <h1 class="text-center my-4">Shop Configuration (WIP)</h1>
+
+    <div class="shopconfig-table my-4">
+        <table class="table table-striped" id="shopconfig-table">
+            <thead>
+                <tr>
+                    <th>Product ID</th>
+                    <th>Shop Name</th>
+                    <th>Price</th>
+                    <th>Limit</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for shop in shop %}
+                <tr>
+                    <td class="product-id">{{ shop.product_id }}</td>
+                        <td>
+                            <input type="text" name="display_name_{{ shop.product_id }}" value="{{ shop.display_name }}" class="form-control">
+                        </td>
+                        <td>
+                            <input type="number" step="1" name="display_price_{{ shop.product_id }}" value="{{ shop.display_price }}" class="form-control">
+                        </td>
+                        <td>
+                            <input type="number" step="1" name="display_price_{{ shop.purchase_limit }}" value="{{ shop.purchase_limit }}" class="form-control">
+                        </td>
+                        <td>
+                            <input class="btn btn-primary" type="submit" value="Upload display photo">
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+{% endblock %}
