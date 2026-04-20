@@ -3,7 +3,7 @@ import secrets
 
 class Config:
     # Flask secret key (for session signing)
-    SECRET_KEY = os.getenv("SECRET_KEY") 
+    SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_hex(16)) 
     SESSION_USE_SIGNER = True     # adds an HMAC signer for extra integrity
     # Cookie hardening
     SESSION_COOKIE_SECURE = True       # only over HTTPS
@@ -18,4 +18,4 @@ class Config:
     DATABASE = os.path.join(os.path.dirname(__file__), f'{db_name}')
     PREFERRED_URL_SCHEME = "https"
 
-    DEBUG = False  # turn off in production
+    DEBUG = True  # turn off in production

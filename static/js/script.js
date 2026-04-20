@@ -36,16 +36,14 @@ async function nricQuery(event) {
 
         // Eligible to redeem
         if (data.type === 'N' || data.type === 'NR') {
-            if (data.age >= 60) {
-                hardLimit += 10;
-                softLimit += 10;
-            }
+            softLimit = data.limit
+            hardLimit = data.limit + 1; // Allow 1 token buffer for accidental over-selection
 
             document.getElementById("checkout-button").disabled = false;
             document.querySelector(".product-container").style.border = '5px solid #4CAF50';
             document.querySelector(".form-container").style.border = 'none';
             document.querySelector("#client-name").innerText =
-                `Client: ${data.name}\n Available Credit: ${softLimit} tokens`;
+                `Client: ${data.name}\n Available Credit: ${data.limit} tokens`;
 
             updateStatusText(`Client found: ${data.message}`, 'success');
 
@@ -53,7 +51,7 @@ async function nricQuery(event) {
         // Redeemed this month
         else if (data.type === 'R') {
             updateStatusText(data.message, 'error');
-            const confirmed = confirm(`Already redeemed: ${data.message}, cancel transaction?`);
+            const confirmed = confirm(`Alert: ${data.message}, cancel transaction?`);
             if (confirmed) {
                 location.reload(true);
             }    else {
@@ -61,7 +59,7 @@ async function nricQuery(event) {
                 document.querySelector(".product-container").style.border = '5px solid #4CAF50';
                 document.querySelector(".form-container").style.border = 'none';
                 document.querySelector("#client-name").innerText =
-                    `Client: ${data.name}\n Available Credit: ${softLimit} tokens`;
+                    `Client: ${data.name}\n Available Credit: ${data.limit} tokens`;
             }
             // You can add more custom logic for 'R' here
         } 
@@ -98,7 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Define custom limits and unlimited products
     const customLimitedProducts = {
-        'Eggs': 1,      // limit quantity to 1
+        'Milo': 1,      // limit quantity to 1
     };
     const unlimitedProducts = ['Adult Milk Powder', 'Light Soya Sauce', 'Pepper', 'Canned Baked Beans']; // no limit
 
@@ -149,6 +147,16 @@ document.addEventListener('DOMContentLoaded', () => {
             quantityElement.textContent = quantity;
         });
     });
+
+    const toggleCartButton = document.getElementById('toggle-cart-btn');
+    const rightContainer = document.querySelector('.right-container');
+    if (toggleCartButton && rightContainer) {
+        toggleCartButton.addEventListener('click', () => {
+            const isCollapsed = rightContainer.classList.toggle('collapsed-cart');
+            toggleCartButton.innerText = isCollapsed ? 'Expand' : 'Collapse';
+            toggleCartButton.setAttribute('aria-expanded', String(!isCollapsed));
+        });
+    }
 });
 
 
@@ -183,9 +191,9 @@ function updateTotal() {
     totalCounter.innerText = `Total: ${total.toFixed(0)} tokens`;
 
     if (total > softLimit) {
-        totalCounter.style.backgroundColor = 'red';
+        totalCounter.style.background = 'red';
     } else {
-        totalCounter.style.backgroundColor = ''; // Reset to default if total is not greater than spending limit
+        totalCounter.style.background = ''; // Reset to default if total is not greater than spending limit
     }
 }
 
@@ -257,7 +265,7 @@ function checkOut() {
     const total = parseFloat(document.querySelector('#total-counter').textContent.replace('Total: ', '').replace(' tokens', ''));
     console.log(total)
     if (total > hardLimit) {
-        alert(`Transaction blocked: Total price exceeds the limit of $${softLimit}. Please remove some items.`);
+        alert(`Transaction blocked: Total exceeds the limit of ${softLimit} tokens. Please remove some items.`);
     } else {
 
     const userConfirmed = confirm(`Confirm Transaction? Client may purchase an additional ${softLimit-total} tokens worth of items.`);
@@ -265,6 +273,8 @@ function checkOut() {
     if (userConfirmed) {
         const productCards = document.querySelectorAll('.product-card');
         let checkoutList = [];
+        document.getElementById("checkout-button").disabled = true; // Disable the checkout button to prevent multiple submissions
+        document.getElementById("checkout-button").innerText = "Processing..."; // Optional: Change button text to indicate processing
 
         // transaction details
         productCards.forEach(card => {
@@ -299,7 +309,8 @@ function checkOut() {
             .then(response => response.json())
             .then(data => {
                 console.log(data.message);
-                document.getElementById("checkout-button").disabled = true;
+                ;
+                document.getElementById("checkout-button").innerText = "Processed"; // Optional: Change button text to indicate success
                 document.querySelector(".product-container").style.border = '';
                 document.querySelector(".form-container").style.border = '';
                 document.getElementById('nric-input').value = '';
@@ -312,6 +323,9 @@ function checkOut() {
             })
             .catch(error => {
                 console.error('Error processing check-out:', error);
+                document.getElementById("checkout-button").disabled = false; // Re-enable the checkout button in case of error
+                document.getElementById("checkout-button").innerText = "Check Out"; // Reset button text
+                alert('An error occurred while processing the transaction. Please try again.');
             });
         } else {
             console.log("Transaction was cancelled by the user.");
@@ -347,6 +361,22 @@ function downloadInventory() {
         a.style.display = 'none';
         a.href = url;
         a.download = 'products.csv';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+    })
+    .catch(error => console.error('Error downloading the CSV:', error));
+}
+
+function downloadMovements() {
+    fetch('/download_movements')
+    .then(response => response.blob())
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = 'movements.csv';
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
@@ -409,60 +439,122 @@ $(document).ready(function() {
 
 // Processes the transaction submission. Sends transaction details to server.
 function submitStock() {
-    const movementType = document.querySelector('#movement-type').value; // Get movement type
-    const tableRows = document.querySelectorAll('.inventory-table tbody tr'); // Ensure correct selector
+    const movementType = document.querySelector('#movement-type').value;
+    const tableRows = document.querySelectorAll('#inventory-table tbody tr');
     const movementList = [];
+    let hasEntries = false;
+
+    // Get visible rows only
+    const visibleRows = Array.from(tableRows).filter(row => row.style.display !== 'none');
+
+    // Validate that movement type is selected
+    if (!movementType) {
+        alert('⚠️ Please select a movement type (Stock In or Stock Out)');
+        return;
+    }
 
     // Add movementType to the list once
     movementList.push({ MovementType: movementType });
 
     // Process transaction details
-    tableRows.forEach((card, index) => {
-        const productID = card.querySelector('.product-id') ? card.querySelector('.product-id').textContent.trim() : null;
-        const movementQuantity = parseInt(card.querySelector('.movement-quantity').value, 10); // Use .value for input
-        const movementSource = card.querySelector('.movement-source') ? card.querySelector('.movement-source').value : null;
-        const movementRemarks = card.querySelector('.movement-remarks') ? card.querySelector('.movement-remarks').value : '';
+    visibleRows.forEach((row, index) => {
+        const productID = row.querySelector('.product-id') ? row.querySelector('.product-id').textContent.trim() : null;
+        const movementQuantity = parseInt(row.querySelector('.movement-quantity').value, 10);
+        const movementSource = row.querySelector('.movement-source') ? row.querySelector('.movement-source').value : null;
+        const movementRemarks = row.querySelector('.movement-remarks') ? row.querySelector('.movement-remarks').value : '';
+        const stockType = row.querySelector('.stock-type-select') ? row.querySelector('.stock-type-select').value : null;
 
-        // Debugging logs
-        console.log(`Row ${index}: Product ID: ${productID}, Quantity: ${movementQuantity}, Source: ${movementSource}, Remarks: ${movementRemarks}`);
+        const originalType = row.dataset.originalType || null;
+        const typeChanged = stockType && stockType !== originalType;
 
         if (!isNaN(movementQuantity) && movementQuantity > 0) {
             movementList.push({
                 productID: productID,
                 movementQuantity: movementQuantity,
                 movementSource: movementSource,
-                movementRemarks: movementRemarks
+                movementRemarks: movementRemarks,
+                stockType: stockType
             });
-        } else {
-            console.log(`Row ${index} skipped due to invalid or zero quantity`);
+            hasEntries = true;
+        } else if (typeChanged) {
+            // Type-only change: no movement quantity, just reclassify
+            movementList.push({
+                productID: productID,
+                movementQuantity: 0,
+                movementSource: null,
+                movementRemarks: '',
+                stockType: stockType
+            });
+            hasEntries = true;
         }
     });
 
-    console.log("Data to be sent:", movementList); // Debugging log
 
-    // Sends the data (movementList) to server
+    console.log('📦 Stock movement data:', movementList);
+
+    // Show loading state
+    const submitBtn = event.target;
+    const originalText = submitBtn.innerText;
+    submitBtn.disabled = true;
+    submitBtn.innerText = '⏳ Processing...';
+
+    // Sends the data to server
     fetch('/update_stock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ movementList }),
     })
     .then(async response => {
-        const data = await response.json();  // parse JSON first
+        const data = await response.json();
         if (!response.ok) {
-            alert(data.message || 'Stock Update Error: Please contact administrator.');
-            throw new Error(data.message || 'Network response was not ok');
+            throw new Error(data.message || 'Stock Update Error: Please contact administrator.');
         }
         return data;
     })
     .then(data => {
-        alert(data.message);
+        alert('✅ ' + (data.message || 'Stock updated successfully!'));
+        // Clear quantity fields
+        document.querySelectorAll('.movement-quantity').forEach(el => el.value = '');
+        document.querySelectorAll('.movement-source').forEach(el => el.value = '');
+        document.querySelectorAll('.movement-remarks').forEach(el => el.value = '');
+        // Refresh stats
+        updateInventoryStats();
         location.reload(true);
     })
     .catch(error => {
-        // error already alerted above, just log here
-        console.error('Fetch error:', error);
+        console.error('Stock update error:', error);
+        alert('❌ Error: ' + error.message);
+        submitBtn.disabled = false;
+        submitBtn.innerText = originalText;
     });
+}
 
+// ============= ITEM TYPE FILTER FUNCTION =============
+function filterByType(type) {
+    const productCards = document.querySelectorAll('.product-card');
+    const filterButtons = document.querySelectorAll('.type-filter-btn');
+    
+    // Update button active states
+    filterButtons.forEach(btn => {
+        if ((type === '' && btn.innerText === 'All Items') || (btn.dataset.type === type)) {
+            btn.style.backgroundColor = '#667eea';
+            btn.style.color = 'white';
+        } else {
+            btn.style.backgroundColor = '#e5e7eb';
+            btn.style.color = '#374151';
+        }
+    });
+    
+    // Filter and display/hide product cards
+    let visibleCount = 0;
+    productCards.forEach(card => {
+        if (type === '' || card.dataset.type === type) {
+            card.style.display = '';
+            visibleCount++;
+        } else {
+            card.style.display = 'none';
+        }
+    });
 }
 
 //Triggers alert upon refresh attempt on pages with class warn-on-unload
@@ -553,5 +645,60 @@ async function submitForm(event) {
     alert(result.message);
     if (response.ok) {
     event.target.reset();
+    }
+}
+
+function handleStatusChange() {
+    const statusSelect = document.getElementById('expired-deceased-status');
+    const nameInput = document.getElementById('add-client-name');
+    const selectedStatus = statusSelect.value;
+
+    if (selectedStatus === 'Expired' || selectedStatus === 'Deceased') {
+        // Set the name to the selected status
+        nameInput.value = selectedStatus;
+        
+        // Lock the field
+        nameInput.readOnly = true;
+        nameInput.classList.add('status-locked');
+
+    } else {
+        // Revert changes when status is set to Active/empty
+        
+        // Unlock the field
+        nameInput.readOnly = false;
+        nameInput.classList.remove('status-locked');
+        
+        // Clear the input value so the user can enter the client's name
+        nameInput.value = '';
+    }
+}
+
+async function checkClient(event) {
+    const nricInput = document.getElementById('add-client-nric').value.trim();
+    if (!nricInput) {
+        alert('Please enter an NRIC number to check.');
+        return;
+    }
+    try {
+        const response = await fetch('/check_client', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ nric: nricInput }),
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+            const clientNameInput = document.getElementById('add-client-name')
+            const clientDOBInput = document.getElementById('add-client-dob')
+            clientDOBInput.value = data.client_DOB;
+            clientNameInput.value = data.client_name; 
+        } else {
+            alert(data.message);
+        } 
+    } catch (error) {
+        console.error("Error checking client:", error);
+        alert("An error occurred while checking the client.");
     }
 }

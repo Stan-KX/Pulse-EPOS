@@ -7,3 +7,5 @@ env/
 *.pyo
 /static/images/
 /venv/
+.claude
+claude.md

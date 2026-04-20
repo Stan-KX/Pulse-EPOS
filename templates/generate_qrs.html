@@ -1,0 +1,38 @@
+{% extends 'layout.html' %}
+
+{% block body %}
+<div id="sgqrgen-container">
+  <h2>Generate QR Codes</h2>
+  <form class="sgqrgen-form" method="post">
+    <div>
+      <label>Prefix</label>
+      <input type="text" name="prefix" value="2026P" />
+    </div>
+    <div>
+      <label>Start (numeric)</label>
+      <input type="number" name="start" value="1" min="1" />
+    </div>
+    <div>
+      <label>Count</label>
+      <input type="number" name="count" value="10" min="1" />
+    </div>
+    <div>
+      <label>Amount (optional)</label>
+      <input type="text" name="amount" placeholder="10" />
+    </div>
+    <div>
+      <label>Amount editable? (Optional) </label>
+      <select name="editable">
+        <option value="true">True</option>
+        <option value="false" >False</option>
+      </select>
+    <div>
+      <label>Expiry Date: (Optional, YYYYMMDD)</label>
+      <input type="text" name="expiry" placeholder = "21001231"/>
+     </div>
+    <div>
+      <button type="submit">Generate &amp; Download ZIP</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

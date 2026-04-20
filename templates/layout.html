@@ -22,12 +22,12 @@
     <ul>
         <li><a href="{{ url_for('index') }}">Log-out</a></li>
         <li><a href="{{ url_for('mainpage') }}">Shop</a></li>
-        <li><a href="{{ url_for('shop_config') }}">Shop Configuration(WIP)</a></li>
         <li><a href="{{ url_for('admin') }}">Admin</a></li>
         <li><a href="{{ url_for('orders') }}">Orders</a></li>
         <li><a href="{{ url_for('inventory') }}">Inventory Management</a></li>
-        <li><a href="{{ url_for('add_client') }}">Add Clients</a></li>
+        <li><a href="{{ url_for('add_client') }}">Add/Edit Clients</a></li>
         <li><a href="{{ url_for('/dashboard/') }}">Dashboard</a></li>
+        <li><a href="{{ url_for('generate_qrs') }}">Generate SGQR</a></li>
     </ul>
 </div>
 

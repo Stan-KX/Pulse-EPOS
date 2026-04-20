@@ -2,6 +2,7 @@ from flask import Flask, flash, request, jsonify, render_template, redirect, url
 import sqlite3
 import csv
 import os
+import datetime as dt
 from datetime import datetime,date, timezone, timedelta
 from functools import wraps
 import io
@@ -15,7 +16,24 @@ import pandas as pd
 from authlib.integrations.flask_client import OAuth
 import os
 from auth.utils import login_required, user_required
+# QR generation imports
+from sgqrgen.generate import generatePayNowQR, point_of_initiation, proxy_type, proxy_value, editable, amount as default_amount, expiry
+import io
+import zipfile
+from flask import send_file
+from werkzeug.utils import secure_filename
+# Heatmap imports
+import requests
+import folium
+from folium.plugins import HeatMap
 import db
+
+# Initialise development session user, remove for prod
+session_user = {
+    "id": "dev_user",
+    "name": "Developer User",
+    "email": "dev@gmail.com"
+}
 
 
 def create_app():
@@ -49,7 +67,8 @@ def create_app():
             si.display_name,
             si.display_price,
             si.item_image,
-            p.total_quantity
+            p.total_quantity,
+            p.type
         FROM
             shop_items si
         JOIN
@@ -62,6 +81,7 @@ def create_app():
                 "name": row['display_name'],
                 "image": row['item_image'],
                 "price": row['display_price'],
+                "type": row['type'],
             }
             for row in items_query if row['total_quantity'] > 4
         ]
@@ -74,13 +94,13 @@ def create_app():
         
     def generate_stock_dict():
         stock_query = db.query_db('''
-            SELECT p.product_id, p.name, p.brand, p.bundle_size, p.price, p.total_quantity, p.type
+            SELECT p.product_id, p.name, p.brand, p.bundle_size, p.price, p.total_quantity, p.type,
+                   CASE WHEN si.product_id IS NOT NULL THEN 1 ELSE 0 END as in_shop,
+                   si.display_name, si.display_price, si.item_image
             FROM products p
-            ORDER BY 
-                CASE 
-                    WHEN p.product_id IN (SELECT si.product_id FROM shop_items si) THEN 0
-                    ELSE 1
-                END,
+            LEFT JOIN shop_items si ON p.product_id = si.product_id
+            ORDER BY
+                CASE WHEN si.product_id IS NOT NULL THEN 0 ELSE 1 END,
                 p.product_id
         ''')
 
@@ -92,6 +112,10 @@ def create_app():
                 "bundle_size": row['bundle_size'],
                 "total_quantity": row['total_quantity'],
                 "type": row['type'],
+                "in_shop": row['in_shop'],
+                "display_name": row['display_name'] or '',
+                "display_price": row['display_price'] if row['display_price'] is not None else '',
+                "item_image": row['item_image'] or '',
             }
             for row in stock_query
         ]
@@ -148,25 +172,14 @@ def create_app():
     @app.route('/login', methods=['GET', "POST"])
     def login():
         session.pop("user", None)
-        # if request.method == "POST":                   # Deprecated 
-        #     username = request.form.get("username")
-        #     password = request.form.get("password")
-        #     if username and staff_authenticate(username, password):
-        #         session["user"] = {
-        #             "id": "deprecated_flow",
-        #             "name": username,
-        #             "email": username
-        #         }
-        # flash(f"Welcome, {username}!", "success")
-        # return redirect(url_for("mainpage"))
         return render_template("login.html", show_sidebar=False)
 
     @app.route('/mainpage', methods = ['GET', 'POST'])
     @login_required
     def mainpage():
         ITEMS = generate_items_dict()
-        generate_items_dict()
-        return render_template('mainpage.html', items = ITEMS)
+        stock_types = generate_stock_types()
+        return render_template('mainpage.html', items = ITEMS, stock_types=stock_types)
 
     @app.route('/query', methods=['POST'])
     def query_client():
@@ -186,6 +199,10 @@ def create_app():
 
         now = datetime.strptime(get_current_gmt8_time(), '%d-%m-%Y %H:%M:%S')
         client_age = now.year - client['client_DOB']
+        if client_age < 60:
+            client_limit = 35 
+        else: 
+            client_limit = 45
         session['nric'] = nric_hash
         client_name = client['client_name']
 
@@ -197,7 +214,11 @@ def create_app():
             single=True
         )
 
-        if redemption:
+        if client_name == "Deceased" or client_name == "Expired":
+            msg = f"{queried_nric} marked as {client_name}. Cannot proceed with redemption."
+            resp_type = "R" # Restricted
+
+        elif redemption:
             redemption_date = datetime.strptime(redemption['redemption_date'], '%d-%m-%Y %H:%M:%S')
             if redemption_date.year == now.year and redemption_date.month == now.month:
                 msg = f"{client_name} last redeemed on {redemption_date}. Cannot redeem again this month."
@@ -209,8 +230,8 @@ def create_app():
             msg = f"{client['client_name']}"
             resp_type = 'N' # New client
 
-        response = {'name': client_name, 'message': msg, 'age': client_age, 'type': resp_type}
-        current_app.logger.info(f"{session.get('user')} queried: {msg}")
+        response = {'name': client_name, 'message': msg, 'limit': client_limit, 'type': resp_type}
+        # current_app.logger.info(f"{session.get('user')} queried: {msg}")
         return jsonify(response)
 
     @app.route('/check_out', methods = ['GET', 'POST'])
@@ -239,9 +260,22 @@ def create_app():
         client_name = db.query_db('SELECT client_name FROM clients where NRIC = ?', (nric,), single= True)['client_name']
         total_spent = summary[0]['TotalSpent'] if summary else 0
         db.insert_db('INSERT INTO transactions (transaction_date, client_name, NRIC, total_spent) VALUES (?, ?, ?, ?)',(transaction_date, client_name, nric, total_spent), single=True)
+        
+        # Get the inserted transaction_id once
+        transaction_id = db.query_db('SELECT last_insert_rowid()', single=True)[0]
+        
+        # Aggregate items by product_id to prevent duplicate detail rows
+        aggregated = {}
         for item in summary:
-            transaction_id = db.query_db('SELECT transaction_id FROM transactions ORDER BY transaction_id DESC LIMIT 1', single = True)[0]
-            db.insert_db('INSERT INTO transaction_details (transaction_id, product_id, transaction_quantity) VALUES (?, ?, ?)',(transaction_id, item['ID'], item['Quantity']), single=True)
+            product_id = item['ID']
+            if product_id in aggregated:
+                aggregated[product_id]['Quantity'] += item['Quantity']
+            else:
+                aggregated[product_id] = {'ID': product_id, 'Quantity': item['Quantity']}
+        
+        # Insert deduplicated items
+        for product_id, item_data in aggregated.items():
+            db.insert_db('INSERT INTO transaction_details (transaction_id, product_id, transaction_quantity) VALUES (?, ?, ?)', (transaction_id, item_data['ID'], item_data['Quantity']), single=True)
 
     @app.route('/admin', methods = ['GET', 'POST'])
     @login_required
@@ -267,14 +301,26 @@ def create_app():
     @app.route('/download_inventory')
     def download_inventory():
         data = db.query_db('SELECT * FROM Products', single = False)
-        headers = data[0].keys()
-        rows = data
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(headers)
-        writer.writerows(rows)
+        if data:
+            writer.writerow(data[0].keys())
+            writer.writerows(data)
         response = Response(output.getvalue(),mimetype='text/csv')
         response.headers['Content-Disposition'] = 'attachment; filename=products.csv'
+        return response
+
+    @login_required
+    @app.route('/download_movements')
+    def download_movements():
+        data = db.query_db('SELECT * FROM inventory_movements', single = False)
+        output = io.StringIO()
+        writer = csv.writer(output)
+        if data:
+            writer.writerow(data[0].keys())
+            writer.writerows(data)
+        response = Response(output.getvalue(),mimetype='text/csv')
+        response.headers['Content-Disposition'] = 'attachment; filename=movements.csv'
         return response
     
     @login_required
@@ -331,13 +377,122 @@ def create_app():
     
     #Endpoint for inventory management
     @app.route('/inventory', methods = ['GET', 'POST'])
-    @user_required(['super-admin'])
-    @login_required
+    # @user_required(['super-admin'])
+    # @login_required
     def inventory():
         generate_stock_dict()
         STOCK = generate_stock_dict()
         stock_types = generate_stock_types()
         return render_template('inventory.html', stock = STOCK, stock_types=stock_types, show_sidebar=True)
+
+    #Endpoint for fetching product movement history
+    @app.route('/api/product_history/<product_id>', methods=['GET'])
+    @login_required
+    def product_history(product_id):
+        try:
+            # Query movement history for the product
+            movements = db.query_db(
+                '''SELECT product_id, movement, movement_type, movement_source, movement_quantity, movement_date, movement_remarks
+                FROM inventory_movements
+                WHERE product_id = ?
+                ORDER BY movement_date DESC
+                LIMIT 50''',
+                (product_id,),
+                single=False
+            )
+            
+            # Format the response
+            movements_list = []
+            for row in movements:
+                movements_list.append({
+                    'product_id': row['product_id'],
+                    'movement': row['movement'],
+                    'movement_type': row['movement_type'],
+                    'source': row['movement_source'],
+                    'quantity': row['movement_quantity'],
+                    'date': row['movement_date'],
+                    'remarks': row['movement_remarks']
+                })
+            
+            return jsonify({'movements': movements_list})
+        except Exception as e:
+            print(f"Error fetching product history: {e}")
+            return jsonify({'error': 'Failed to fetch history'}), 500
+
+    #Endpoint for adding new stock types
+    @app.route('/api/add_stock_type', methods=['POST'])
+    @login_required
+    def add_stock_type():
+        try:
+            data = request.get_json()
+            type_name = data.get('type_name', '').strip()
+            
+            if not type_name:
+                return jsonify({'error': 'Type name cannot be empty'}), 400
+            
+            # Check if type already exists
+            existing_type = db.query_db(
+                'SELECT 1 FROM products WHERE type = ?',
+                (type_name,),
+                single=True
+            )
+            
+            if existing_type:
+                return jsonify({'error': f'Type "{type_name}" already exists'}), 409
+            
+            # Add the type by creating a placeholder product entry
+            # This ensures the type appears in dropdowns when pulling DISTINCT types
+            try:
+                db.insert_db(
+                    '''INSERT INTO products (product_id, name, brand, bundle_size, price, total_quantity, type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                    (f'TYPE_{type_name}_{int(dt.datetime.now().timestamp())}', 
+                     f'[TYPE DEFINITION] {type_name}',
+                     'System',
+                     'N/A',
+                     0,
+                     0,
+                     type_name),
+                    single=True
+                )
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'Stock type "{type_name}" added successfully',
+                    'type_name': type_name
+                }), 201
+            except sqlite3.IntegrityError:
+                return jsonify({'error': 'Failed to add type due to database constraint'}), 400
+                
+        except Exception as e:
+            print(f"Error adding stock type: {e}")
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/remove_stock_type', methods=['POST'])
+    @login_required
+    def remove_stock_type():
+        try:
+            data = request.get_json()
+            type_name = data.get('type_name', '').strip()
+
+            if not type_name:
+                return jsonify({'error': 'Type name cannot be empty'}), 400
+
+            # Null out the type for all products currently using it
+            db.insert_db(
+                'UPDATE products SET type = NULL WHERE type = ?',
+                (type_name,), single=True
+            )
+            # Remove the TYPE_ placeholder row for this type
+            db.insert_db(
+                "DELETE FROM products WHERE name = ? AND brand = 'System'",
+                (f'[TYPE DEFINITION] {type_name}',), single=True
+            )
+
+            return jsonify({'success': True, 'message': f'Type "{type_name}" removed'})
+        except Exception as e:
+            print(f"Error removing stock type: {e}")
+            return jsonify({'error': str(e)}), 500
 
     #Endpoint for adding new clients
     @login_required
@@ -353,10 +508,11 @@ def create_app():
             if queried_nric and client_name and client_dob:
                 if not re.match(r"^[STFG]\d{7}[A-Z]$", queried_nric):
                     return jsonify({'message': 'Invalid NRIC format. Please enter a valid NRIC.'}), 400
-                elif client:
-                    return jsonify({'message': 'Client already exists.'}), 400
                 elif not re.match(r"^\d{4}$", client_dob):
                     return jsonify({'message': 'Invalid date of birth format. Please enter a valid year.'}), 400
+                elif client:
+                    db.insert_db('update clients set client_name = ?, client_DOB = ? where NRIC = ?', (client_name, client_dob, nric_hash), single=True)
+                    return jsonify({'message':f'{queried_nric} details updated!'})
                 else:
                     db.insert_db('INSERT INTO clients (NRIC, client_name, client_DOB) VALUES (?, ?, ?)', (nric_hash, client_name, client_dob), single=True)
                     return jsonify({'message': 'Client added successfully!'})
@@ -364,6 +520,26 @@ def create_app():
                 return jsonify({'message': 'Please fill in all fields.'}), 400
             
         return render_template('add_client.html', show_sidebar=True)
+
+     #Endpoint for checking clients
+    @login_required
+    @app.route('/check_client', methods=['GET', 'POST'])
+    def check_client():
+        if request.method == 'POST':
+            data = request.json
+            queried_nric = data.get('nric', '').strip().upper()
+            print(f"Checking client NRIC: {queried_nric}")
+            nric_hash = hash_nric(queried_nric, pepper
+            )
+            client = db.query_db(
+                'SELECT client_name, client_DOB FROM clients WHERE NRIC = ?',
+                (nric_hash,),
+                single=True)
+            if client:
+                    return jsonify({'message': f"{queried_nric} found.", 'client_name': client['client_name'], 'client_DOB': client['client_DOB']})
+            else:
+                    return jsonify({'message': f"{queried_nric} not found."}), 404
+            
 
     #Endpoint for updating stock levels
     @login_required
@@ -377,8 +553,8 @@ def create_app():
             movement_date = datetime.now(local_offset).strftime('%d-%m-%Y %H:%M:%S')
             print("Incoming request JSON:", data)
             print("Parsed movementList:", movement_list)
-            movement_in = {'purchase', 'donation', 'admin stock in'}                                                                               # Replace with business logic
-            movement_out = {'redeemed', 'damaged', 'expired', 'office consumption', 'return', 'other programme consumption', 'admin stock out'}    # As above
+            movement_in = {'purchase', 'donation', 'admin stock in', 'return'}                                                                               # Replace with business logic
+            movement_out = {'admin stock out', 'expired', 'damaged', 'redeemed', 'office consumption', 'other programme consumption'}    # As above
             # Iterate over each item in the movementList
             movement_type = None  # store for later use
 
@@ -399,14 +575,32 @@ def create_app():
                 movement_quantity = entry.get('movementQuantity')
                 movement_source = entry.get('movementSource')
                 movement_remarks = entry.get('movementRemarks')
+                stock_type = entry.get('stockType')  # New: Get the stock type from entry
                 movement = 'in' if movement_type in movement_in else 'out'
 
-                db.insert_db(
-                    'INSERT INTO inventory_movements (product_id, movement, movement_type, movement_source, movement_quantity, movement_date, movement_remarks) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    (product_id, movement, movement_type, movement_source, movement_quantity, movement_date, movement_remarks),
-                    single=True
-                )
-                print(f"Product ID: {product_id}, Quantity: {movement_quantity}, Source: {movement_source}, Remarks: {movement_remarks}")
+                if movement_quantity and movement_quantity > 0:
+                    db.insert_db(
+                        'INSERT INTO inventory_movements (product_id, movement, movement_type, movement_source, movement_quantity, movement_date, movement_remarks) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        (product_id, movement, movement_type, movement_source, movement_quantity, movement_date, movement_remarks),
+                        single=True
+                    )
+                    qty_delta = movement_quantity if movement == 'in' else -movement_quantity
+                    db.insert_db(
+                        'UPDATE products SET total_quantity = MAX(0, total_quantity + ?) WHERE product_id = ?',
+                        (qty_delta, product_id),
+                        single=True
+                    )
+
+                # Update product type if it has changed
+                if stock_type:
+                    db.insert_db(
+                        'UPDATE products SET type = ? WHERE product_id = ?',
+                        (stock_type, product_id),
+                        single=True
+                    )
+                    print(f"Updated Product ID {product_id} type to {stock_type}")
+                
+                print(f"Product ID: {product_id}, Quantity: {movement_quantity}, Source: {movement_source}, Type: {stock_type}, Remarks: {movement_remarks}")
 
             return jsonify({'message': 'Transaction processed successfully!'})
 
@@ -415,8 +609,8 @@ def create_app():
             return jsonify({'message': 'Error processing transaction'}), 500
 
     #Endpoint for shop configuration, WIP
-    @app.route('/shop_config', methods = ['GET', 'POST'])
     @login_required
+    @app.route('/shop_config', methods = ['GET', 'POST'])
     def shop_config():
         generate_shop_dict()
         SHOP = generate_shop_dict()
@@ -426,23 +620,23 @@ def create_app():
     @app.route("/add_stock", methods=["POST"])
     def add_stock():
         try:
-            last = db.query_db("SELECT product_id FROM products ORDER BY product_id DESC LIMIT 1", single=True)
+            last = db.query_db(
+                "SELECT product_id FROM products WHERE product_id GLOB '[0-9]*' ORDER BY CAST(product_id AS INTEGER) DESC LIMIT 1",
+                single=True
+            )
             next_id = int(last['product_id']) + 1 if last else 1
             product_id = f"{next_id:04d}"  # zero-padded 4 digits
             name = request.form.get("product_name").strip()
             brand = request.form.get("brand").strip()
             bundle_size = request.form.get("bundle_size").strip()
             quantity = int(request.form.get("quantity"))
-            price =  float(request.form.get("price"))
-            # movement_source = request.form.get("movement_source")
-            # remarks = request.form.get("remarks")
-            total_quantity = 0
+            price = float(request.form.get("price"))
+            item_type = request.form.get("item_type", "").strip() or None
 
-            print(f'{product_id, name, brand, bundle_size, price, total_quantity}')
-            # Insert into database
+            print(f'{product_id, name, brand, bundle_size, price, quantity, item_type}')
             db.insert_db(
-                "INSERT INTO products (product_id, name, brand, bundle_size, price, total_quantity) VALUES (?, ?, ?, ?, ?, ?)",
-                (product_id, name, brand, bundle_size, price, total_quantity), single = True
+                "INSERT INTO products (product_id, name, brand, bundle_size, price, total_quantity, type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (product_id, name, brand, bundle_size, price, quantity, item_type), single=True
             )
             
             
@@ -453,8 +647,188 @@ def create_app():
             flash("Error adding stock. Please try again or contact Administrator.", "danger")
             return redirect(url_for("inventory"))
 
+    @login_required
+    @app.route('/add_to_shop', methods=['GET', 'POST'])
+    def add_to_shop():
+        try:
+            product_name = request.form.get("product_name")
+            display_name = request.form.get("shop_name")
+            display_price_raw = request.form.get("shop_price")
+
+            if not product_name:
+                flash("Product name is required.", "danger")
+                return redirect(url_for("inventory"))
+
+            prod_row = db.query_db("SELECT product_id FROM products WHERE name = ?", (product_name,), single=True)
+            if not prod_row:
+                flash(f"Product '{product_name}' not found.", "danger")
+                return redirect(url_for("inventory"))
+            product_id = prod_row['product_id']
+
+            try:
+                display_price = float(display_price_raw) if display_price_raw not in (None, "") else None
+            except ValueError:
+                flash("Invalid shop price.", "danger")
+                return redirect(url_for("inventory"))
+
+            # Handle image upload; fall back to existing image or default filename
+            cover_file = request.files.get("cover_image")
+            existing = db.query_db("SELECT item_image FROM shop_items WHERE product_id = ?", (product_id,), single=True)
+
+            if cover_file and cover_file.filename:
+                filename = secure_filename(cover_file.filename)
+                if not filename:
+                    flash("Image filename is invalid after sanitisation. Please rename the file and try again.", "danger")
+                    return redirect(url_for("inventory"))
+                save_path = os.path.join(current_app.static_folder, "images", filename)
+                try:
+                    cover_file.save(save_path)
+                    print(f"[add_to_shop] image saved → {save_path}")
+                except Exception as img_err:
+                    print(f"[add_to_shop] image save FAILED: {img_err}")
+                    flash(f"Image could not be saved: {img_err}", "danger")
+                    return redirect(url_for("inventory"))
+                display_image = filename
+            elif existing:
+                display_image = existing['item_image']
+            else:
+                display_image = (product_name or "item").strip() + ".jpeg"
+
+            if existing:
+                db.insert_db(
+                    "UPDATE shop_items SET display_name = ?, display_price = ?, item_image = ? WHERE product_id = ?",
+                    (display_name, display_price, display_image, product_id), single=True)
+                flash(f"{display_name} updated successfully!")
+            else:
+                db.insert_db(
+                    "INSERT INTO shop_items (product_id, display_name, display_price, item_image) VALUES (?, ?, ?, ?)",
+                    (product_id, display_name, display_price, display_image), single=True)
+                flash(f"{display_name} added to shop successfully!")
+
+            return redirect(url_for("inventory"))
+
+        except Exception as e:
+            print(f"Error adding to shop: {e}")
+            flash("Error adding to shop. Please try again or contact Administrator.", "danger")
+            return redirect(url_for("inventory"))
+
+    @login_required
+    @app.route('/remove_from_shop', methods=['POST'])
+    def remove_from_shop():
+        try:
+            product_id = request.form.get("product_id")
+            if not product_id:
+                flash("Product ID is required.", "danger")
+                return redirect(url_for("inventory"))
+            db.insert_db("DELETE FROM shop_items WHERE product_id = ?", (product_id,), single=True)
+            flash("Shop listing removed.")
+            return redirect(url_for("inventory"))
+        except Exception as e:
+            print(f"Error removing from shop: {e}")
+            flash("Error removing listing. Please try again.", "danger")
+            return redirect(url_for("inventory"))
+
 
     dash_app = dash.Dash(__name__, server=app, url_base_pathname='/dashboard/')
+
+    @login_required
+    @app.route('/generate_qrs', methods=['GET', 'POST'])
+    def generate_qrs():
+        if request.method == 'GET':
+            return render_template('generate_qrs.html', show_sidebar=True)
+
+        # POST: generate requested number of QR codes and return zip
+        try:
+            count = int(request.form.get('count', 10))
+            prefix = request.form.get('prefix', '2026P')
+            start = int(request.form.get('start', 1))
+            amt = request.form.get('amount') or default_amount
+            editable_request = request.form.get('editable') or True
+            editable = '1' if editable_request.lower() == 'true' else '0'
+            expiry = request.form.get('expiry') or "21001231"
+            # Validate expiry format
+        except Exception:
+            return jsonify({'message': 'Invalid input'}), 400
+
+        # Cap to prevent abuse
+        MAX = 2500
+        if count < 1 or count > MAX:
+            return jsonify({'message': f'Count must be 1..{MAX}'}), 400
+
+        mem_zip = io.BytesIO()
+        with zipfile.ZipFile(mem_zip, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+            for i in range(start, start + count):
+                bn = f"{prefix}{i:04d}"
+                img = generatePayNowQR(point_of_initiation, proxy_type, proxy_value, editable, amt, expiry, bn)
+                # img is a PIL Image
+                img_bytes = io.BytesIO()
+                img.save(img_bytes, format='PNG')
+                img_bytes.seek(0)
+                zf.writestr(f'generated_qr_{bn}.png', img_bytes.read())
+
+        mem_zip.seek(0)
+        return send_file(mem_zip, mimetype='application/zip', as_attachment=True, download_name='sgqrs.zip')
+
+    @login_required
+    @app.route('/heatmap', methods=['GET', 'POST'])
+    def heatmap():
+        if request.method == 'GET':
+            return render_template('heatmap.html', show_sidebar=True)
+        
+        # POST: Process postal codes and generate heatmap
+        try:
+            action = request.form.get('action', 'generate')
+            postal_input = request.form.get('postal_codes', '').strip()
+            postal_list = [p.strip() for p in postal_input.split('\n') if p.strip()]
+            
+            if action == 'remove_duplicates':
+                # Remove duplicates and return the list
+                postal_set = sorted(set(postal_list))
+                return jsonify({'success': True, 'postal_codes': postal_set})
+            
+            elif action == 'generate':
+                if not postal_list:
+                    return jsonify({'success': False, 'message': 'Please enter postal codes'}), 400
+                
+                lat_long_list = []
+                errors = []
+                
+                for i, postal in enumerate(postal_list, start=1):
+                    try:
+                        if postal.isnumeric():
+                            url = f"https://www.onemap.gov.sg/api/common/elastic/search?searchVal={postal}&returnGeom=Y&getAddrDetails=Y&pageNum=1"
+                            response = requests.get(url, timeout=5)
+                            results_dict = response.json()
+                            
+                            if len(results_dict.get("results", [])) > 0:
+                                latitude = float(results_dict["results"][0]["LATITUDE"])
+                                longitude = float(results_dict["results"][0]["LONGITUDE"])
+                                lat_long_list.append((latitude, longitude))
+                            else:
+                                errors.append(f"Postal code {postal} not found")
+                        else:
+                            errors.append(f"Postal code {postal} is not numeric")
+                    except Exception as e:
+                        errors.append(f"Error processing {postal}: {str(e)}")
+                
+                if not lat_long_list:
+                    return jsonify({'success': False, 'message': 'No valid postal codes processed'}), 400
+                
+                # Generate the heatmap
+                map_object = folium.Map(location=[1.290270, 103.851959], zoom_start=12)
+                HeatMap(lat_long_list).add_to(map_object)
+                html_map = map_object._repr_html_()
+                
+                return jsonify({
+                    'success': True,
+                    'map_html': html_map,
+                    'points_count': len(lat_long_list),
+                    'errors': errors
+                })
+        
+        except Exception as e:
+            print(f"Heatmap Error: {e}")
+            return jsonify({'success': False, 'message': 'Error processing heatmap'}), 500
 
     # Sample data and figure
     df = px.data.iris()
@@ -512,12 +886,17 @@ def create_app():
             y_values = [count for year, month, count in results]
             total_transactions = sum(y_values)
 
-            transaction_fig = px.bar(
-                x=x_labels,
-                y=y_values,
-                labels={'x': 'Year-Month', 'y': 'Number of Transactions'},
-                title="Monthly Transactions (2024-2025)"
-            )
+            if x_labels and y_values:
+                transaction_fig = px.bar(
+                    x=x_labels,
+                    y=y_values,
+                    labels={'x': 'Year-Month', 'y': 'Number of Transactions'},
+                    title="Monthly Transactions (2024-2025)"
+                )
+            else:
+                transaction_fig = px.bar(
+                    title="Monthly Transactions (2024-2025) — No data"
+                )
 
             # --- Low Stock Products Data ---
             low_stock = get_low_stock_products(10)      # Threshold set to 10, replace as necessary

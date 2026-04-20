@@ -3,18 +3,26 @@
 {% block body %}
 <div class="parent-container">
   <form id="add-client-form" onsubmit="submitForm(event)">
-    <h1 id="add-client-title">Add a Single Client</h1>
+    <h1 id="add-client-title">Add/Edit Client</h1>
 
-    <label for="add-client-nric" class="add-client-label">NRIC:</label>
+    <label for="add-client-nric" class="add-client-label" data-tooltip="Enter the client's NRIC number."><span>NRIC:</span></label>
     <input type="text" id="add-client-nric" name="nric" class="add-client-input" required />
+    <button type="button" class="btn btn-primary" onclick="checkClient()" data-tooltip="Query if NRIC exists in system.">Query NRIC</button>
 
-    <label for="add-client-name" class="add-client-label">Client Name:</label>
+    <label for="add-client-name" class="add-client-label" data-tooltip="Provide the full name."><span>Client Name:</span></label>
     <input type="text" id="add-client-name" name="client_name" class="add-client-input" required />
 
-    <label for="add-client-dob" class="add-client-label">Year of Birth (e.g., 1963):</label>
+    <label for="add-client-dob" class="add-client-label" data-tooltip="Specify the four-digit year of birth, e.g., 1963."><span>Year of Birth (e.g., 1963):</span></label>
     <input type="text" id="add-client-dob" name="client_dob" class="add-client-input" required />
 
-    <button type="submit" id="add-client-submit">Add Client</button>
+    <label for="add-client-dob" class="add-client-label" data-tooltip="Select if client has expired, or is deceased"><span>Expired/Deceased</span></label>
+      <select class="form-control" id="expired-deceased-status" name="expired_deceased_status" onchange="handleStatusChange()">
+                  <option></option>
+                  <option>Expired</option>
+                  <option>Deceased</option>
+      </select>
+      <br><br>
+    <button type="submit" id="add-client-submit">Add/Edit Client</button>
   </form>
 </div>
 {% endblock %}
