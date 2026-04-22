@@ -476,8 +476,8 @@ function submitStock() {
                 stockType: stockType
             });
             hasEntries = true;
-        } else if (typeChanged) {
-            // Type-only change: no movement quantity, just reclassify
+        } else if (typeChanged && (isNaN(movementQuantity) || movementQuantity <= 0)) {
+            // Type-only change: reclassify without a stock movement
             movementList.push({
                 productID: productID,
                 movementQuantity: 0,
@@ -565,72 +565,6 @@ document.addEventListener("DOMContentLoaded", function() {
         };
     }
 });
-
-document.addEventListener('DOMContentLoaded', function() {
-    const rowsPerPage = 25;
-    const table = document.getElementById('inventory-table');
-    const tbody = table.querySelector('tbody');
-    const allRows = Array.from(tbody.querySelectorAll('tr'));
-    const paginationControls = document.getElementById('pagination-controls');
-    let currentPage = 1;
-    let filteredRows = [...allRows];
-
-    function displayRows(page) {
-        const start = (page - 1) * rowsPerPage;
-        const end = start + rowsPerPage;
-        filteredRows.forEach((row, index) => {
-            row.style.display = index >= start && index < end ? '' : 'none';
-        });
-    }
-
-    function setupPagination() {
-        const pageCount = Math.ceil(filteredRows.length / rowsPerPage);
-        paginationControls.innerHTML = '';
-
-        for (let i = 1; i <= pageCount; i++) {
-            const button = document.createElement('button');
-            button.textContent = i;
-            button.classList.add('btn', 'btn-secondary', 'mx-1');
-            if (i === currentPage) button.classList.add('active');
-            button.addEventListener('click', () => {
-                currentPage = i;
-                displayRows(currentPage);
-                document.querySelectorAll('#pagination-controls button').forEach(btn => btn.classList.remove('active'));
-                button.classList.add('active');
-            });
-            paginationControls.appendChild(button);
-        }
-    }
-
-    displayRows(currentPage);
-    setupPagination();
-});
-
-
-// inventory search function
-document.addEventListener('DOMContentLoaded', function() {
-    const searchInput = document.getElementById('search-product');
-    const tableRows = document.querySelectorAll('#inventory-table tbody tr');
-
-    searchInput.addEventListener('input', function() {
-        const searchValue = this.value.toLowerCase().trim();
-
-        tableRows.forEach(row => {
-            const productName = row.children[1].textContent.toLowerCase(); // Name
-            const brand = row.children[2].textContent.toLowerCase();       // Brand
-            const typeInput = row.querySelector('.stock-type');            // Hidden input
-            const type = typeInput ? typeInput.value.toLowerCase() : '';
-
-            if (productName.includes(searchValue) || brand.includes(searchValue) || type.includes(searchValue)) {
-                row.style.display = ''; // show row
-            } else {
-                row.style.display = 'none'; // hide row
-            }
-        });
-    });
-});
-
-
 
     // Add event listener for form submission
 async function submitForm(event) {

@@ -646,7 +646,7 @@
             <!-- Action Buttons -->
             <div class="btn-toolbar" style="margin-top: 16px;">
                 <button type="button" class="btn-action primary" data-toggle="modal" data-target="#addStockModal">➕ Add New Item</button>
-                <button type="button" class="btn-action primary" data-toggle="modal" data-target="#addToShopModal">🏪 Add Shop Listing</button>
+                <button type="button" class="btn-action primary" data-toggle="modal" data-target="#addToShopModal">🏪 Edit Shop Listing</button>
                 <button type="button" class="btn-action secondary" data-toggle="modal" data-target="#addTypeModal">🏷️ Add/Remove Item Type</button>
                 <button type="button" class="btn-action secondary" onclick="exportToCSV()">📥 Export CSV</button>
             </div>
@@ -866,12 +866,6 @@
 
 <!-- Enhanced JavaScript for Inventory -->
 <script>
-// Initialize stats and filtering on page load
-document.addEventListener('DOMContentLoaded', function() {
-    updateInventoryStats();
-    setupTableFiltering();
-    setupPagination();
-});
 
 // Calculate and display inventory statistics
 function updateInventoryStats() {
@@ -1465,7 +1459,6 @@ document.addEventListener('DOMContentLoaded', function() {
     updateInventoryStats();
     setupTableFiltering();
     setupPagination();
-    updateQuickFilterCounts();
 });
 </script>
 

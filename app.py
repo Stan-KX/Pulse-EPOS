@@ -28,18 +28,14 @@ import folium
 from folium.plugins import HeatMap
 import db
 
-# Initialise development session user, remove for prod
-session_user = {
-    "id": "dev_user",
-    "name": "Developer User",
-    "email": "dev@gmail.com"
-}
-
 
 def create_app():
     app = Flask(__name__)
-    app.config.from_object("config.Config")
-    app.config['SERVER_NAME'] = 'localhost:5000'  # Set the server name for URL generation, remove for prod
+    env = os.environ.get('FLASK_ENV', 'development')
+    if env == 'production':
+        app.config.from_object("config.ProductionConfig")
+    else:
+        app.config.from_object("config.DevelopmentConfig")
 
     # ✅ Import and register blueprint
     from auth import auth_bp, init_oauth
@@ -152,18 +148,13 @@ def create_app():
         current_time = datetime.now(gmt8)
         return current_time.strftime('%d-%m-%Y %H:%M:%S')
 
-    # Authenticates log-in details from /login, deprecated
-    # def staff_authenticate(username, password):
-    #     user = db.query_db('SELECT Username, Password FROM Staff WHERE UPPER(Username) = UPPER(?)', (username,), single=True)
-
-    #     if user is None:
-    #         return False
-
-    #     if user['password'] != password:
-    #         print('incorrect password')
-    #         return False
-
-    #     return True
+    def staff_authenticate(username, password):
+        user = db.query_db('SELECT Username, Password FROM Staff WHERE UPPER(Username) = UPPER(?)', (username,), single=True)
+        if user is None:
+            return False
+        if user['password'] != password:
+            return False
+        return True
 
     @app.route('/', methods=['GET', "POST"])
     def index():
@@ -172,6 +163,17 @@ def create_app():
     @app.route('/login', methods=['GET', "POST"])
     def login():
         session.pop("user", None)
+        if request.method == "POST":
+            username = request.form.get("username")
+            password = request.form.get("password")
+            if username and staff_authenticate(username, password):
+                session["user"] = {
+                    "id": "staff_login",
+                    "name": username,
+                    "email": username
+                }
+                flash(f"Welcome, {username}!", "success")
+                return redirect(url_for("mainpage"))
         return render_template("login.html", show_sidebar=False)
 
     @app.route('/mainpage', methods = ['GET', 'POST'])
@@ -247,7 +249,7 @@ def create_app():
                 }
                 for entry in data
                 ]
-            print(f"{session['user']} attempting to check out: {summary}")
+            print(f"{session.get('user')} attempting to check out: {summary}")
             update_db(summary) # Update transaction log with the data
             return jsonify({'message': 'Transaction processed successfully!'})
         except Exception as e:
@@ -297,8 +299,8 @@ def create_app():
         response.headers['Content-Disposition'] = 'attachment; filename=transactions.csv'
         return response
 
-    @login_required
     @app.route('/download_inventory')
+    @login_required
     def download_inventory():
         data = db.query_db('SELECT * FROM Products', single = False)
         output = io.StringIO()
@@ -310,8 +312,8 @@ def create_app():
         response.headers['Content-Disposition'] = 'attachment; filename=products.csv'
         return response
 
-    @login_required
     @app.route('/download_movements')
+    @login_required
     def download_movements():
         data = db.query_db('SELECT * FROM inventory_movements', single = False)
         output = io.StringIO()
@@ -323,13 +325,13 @@ def create_app():
         response.headers['Content-Disposition'] = 'attachment; filename=movements.csv'
         return response
     
-    @login_required
     @app.route('/orders', methods = ['GET', 'POST'])
+    @login_required
     def orders():
         return render_template('orders.html')
 
-    @login_required
     @app.route('/fetch')
+    @login_required
     def fetch_transaction():
         req_type = request.args.get('type', 'latest')
         req_id = request.args.get('id', None)
@@ -377,10 +379,9 @@ def create_app():
     
     #Endpoint for inventory management
     @app.route('/inventory', methods = ['GET', 'POST'])
-    # @user_required(['super-admin'])
-    # @login_required
+    @user_required(['super-admin', 'admin'])
+    @login_required
     def inventory():
-        generate_stock_dict()
         STOCK = generate_stock_dict()
         stock_types = generate_stock_types()
         return render_template('inventory.html', stock = STOCK, stock_types=stock_types, show_sidebar=True)
@@ -395,7 +396,7 @@ def create_app():
                 '''SELECT product_id, movement, movement_type, movement_source, movement_quantity, movement_date, movement_remarks
                 FROM inventory_movements
                 WHERE product_id = ?
-                ORDER BY movement_date DESC
+                ORDER BY substr(movement_date,7,4)||substr(movement_date,4,2)||substr(movement_date,1,2)||substr(movement_date,11) DESC
                 LIMIT 50''',
                 (product_id,),
                 single=False
@@ -495,8 +496,8 @@ def create_app():
             return jsonify({'error': str(e)}), 500
 
     #Endpoint for adding new clients
-    @login_required
     @app.route('/add_client', methods=['GET', 'POST'])
+    @login_required
     def add_client():
         if request.method == 'POST':
             queried_nric = request.form.get('nric', '').strip().upper()
@@ -521,9 +522,9 @@ def create_app():
             
         return render_template('add_client.html', show_sidebar=True)
 
-     #Endpoint for checking clients
-    @login_required
+    #Endpoint for checking clients
     @app.route('/check_client', methods=['GET', 'POST'])
+    @login_required
     def check_client():
         if request.method == 'POST':
             data = request.json
@@ -542,8 +543,8 @@ def create_app():
             
 
     #Endpoint for updating stock levels
-    @login_required
     @app.route('/update_stock', methods=['POST'])
+    @login_required
     def update_stock():
         try:
             # Get the JSON data from the request
@@ -584,12 +585,7 @@ def create_app():
                         (product_id, movement, movement_type, movement_source, movement_quantity, movement_date, movement_remarks),
                         single=True
                     )
-                    qty_delta = movement_quantity if movement == 'in' else -movement_quantity
-                    db.insert_db(
-                        'UPDATE products SET total_quantity = MAX(0, total_quantity + ?) WHERE product_id = ?',
-                        (qty_delta, product_id),
-                        single=True
-                    )
+                    # Trigger adjust_quantity_on_movement handles the total_quantity update automatically
 
                 # Update product type if it has changed
                 if stock_type:
@@ -609,15 +605,15 @@ def create_app():
             return jsonify({'message': 'Error processing transaction'}), 500
 
     #Endpoint for shop configuration, WIP
-    @login_required
     @app.route('/shop_config', methods = ['GET', 'POST'])
+    @login_required
     def shop_config():
         generate_shop_dict()
         SHOP = generate_shop_dict()
         return render_template('shop_config.html', shop = SHOP, show_sidebar=True)
 
-    @login_required
     @app.route("/add_stock", methods=["POST"])
+    @login_required
     def add_stock():
         try:
             last = db.query_db(
@@ -647,8 +643,8 @@ def create_app():
             flash("Error adding stock. Please try again or contact Administrator.", "danger")
             return redirect(url_for("inventory"))
 
-    @login_required
     @app.route('/add_to_shop', methods=['GET', 'POST'])
+    @login_required
     def add_to_shop():
         try:
             product_name = request.form.get("product_name")
@@ -712,8 +708,8 @@ def create_app():
             flash("Error adding to shop. Please try again or contact Administrator.", "danger")
             return redirect(url_for("inventory"))
 
-    @login_required
     @app.route('/remove_from_shop', methods=['POST'])
+    @login_required
     def remove_from_shop():
         try:
             product_id = request.form.get("product_id")
@@ -731,8 +727,8 @@ def create_app():
 
     dash_app = dash.Dash(__name__, server=app, url_base_pathname='/dashboard/')
 
-    @login_required
     @app.route('/generate_qrs', methods=['GET', 'POST'])
+    @login_required
     def generate_qrs():
         if request.method == 'GET':
             return render_template('generate_qrs.html', show_sidebar=True)
@@ -769,8 +765,8 @@ def create_app():
         mem_zip.seek(0)
         return send_file(mem_zip, mimetype='application/zip', as_attachment=True, download_name='sgqrs.zip')
 
-    @login_required
     @app.route('/heatmap', methods=['GET', 'POST'])
+    @login_required
     def heatmap():
         if request.method == 'GET':
             return render_template('heatmap.html', show_sidebar=True)
