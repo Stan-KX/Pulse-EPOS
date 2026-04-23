@@ -96,7 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Define custom limits and unlimited products
     const customLimitedProducts = {
-        'Milo': 1,      // limit quantity to 1
+        'Eggs': 1,      // limit quantity to 1
     };
     const unlimitedProducts = ['Adult Milk Powder', 'Light Soya Sauce', 'Pepper', 'Canned Baked Beans']; // no limit
 

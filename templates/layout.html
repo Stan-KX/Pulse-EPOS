@@ -54,7 +54,7 @@
   <!-- Child templates will insert content here -->
   {% endblock %}
 
-  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
   <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
   <script src="static/js/script.js"></script>
@@ -62,6 +62,5 @@
   <script>
       const items = {{ items|tojson if items is defined else '[]' }};
   </script>
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </body>
 </html>

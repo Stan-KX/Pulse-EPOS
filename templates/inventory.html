@@ -587,12 +587,7 @@
                 <div class="control-group">
                     <label for="search-product">Search Products</label>
                     <div class="input-with-icon">
-                        <input list="type-list" class="form-control" id="search-product" placeholder="Name, brand, or type..." style="padding: 10px 12px; border-radius: 8px; border: 1px solid #d1d5db;">
-                        <datalist id="type-list">
-                            {% for type in stock_types %}
-                                <option value="{{ type }}"></option>
-                            {% endfor %}
-                        </datalist>
+                        <input list="type-list" class="form-control" id="search-product" placeholder="Search by Product Name or Brand" style="padding: 10px 12px; border-radius: 8px; border: 1px solid #d1d5db;">
                     </div>
                 </div>
                 <div class="control-group">
@@ -740,6 +735,9 @@
                         <span class="view-history-link" style="color: #667eea;"
                               onclick="openAddShopModal('{{ stock.product_id }}', '{{ stock.name }}')">🏪 Add to Shop</span>
                     {% endif %}
+                    &nbsp;
+                    <span class="view-history-link" style="color: #dc2626;"
+                          onclick="confirmDeleteProduct('{{ stock.product_id }}', '{{ stock.name }}')">🗑 Delete</span>
                 </td>
             </tr>
                         {% endfor %}
@@ -862,6 +860,11 @@
 <!-- Hidden Remove-from-shop form (submitted by JS) -->
 <form id="remove-from-shop-form" action="{{ url_for('remove_from_shop') }}" method="POST" style="display: none;">
     <input type="hidden" id="remove-product-id" name="product_id">
+</form>
+
+<!-- Hidden delete-product form (submitted by JS) -->
+<form id="delete-product-form" action="{{ url_for('delete_product') }}" method="POST" style="display: none;">
+    <input type="hidden" id="delete-product-id" name="product_id">
 </form>
 
 <!-- Enhanced JavaScript for Inventory -->
@@ -1452,6 +1455,12 @@ function confirmRemoveFromShop(productId, displayName) {
     if (!confirm('Remove "' + displayName + '" from the shop? The product will stay in inventory.')) return;
     document.getElementById('remove-product-id').value = productId;
     document.getElementById('remove-from-shop-form').submit();
+}
+
+function confirmDeleteProduct(productId, productName) {
+    if (!confirm('Permanently delete "' + productName + '" from inventory? This cannot be undone.')) return;
+    document.getElementById('delete-product-id').value = productId;
+    document.getElementById('delete-product-form').submit();
 }
 
 // Initialize on page load

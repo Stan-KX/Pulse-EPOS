@@ -724,6 +724,17 @@ def create_app():
             flash("Error removing listing. Please try again.", "danger")
             return redirect(url_for("inventory"))
 
+    @app.route('/delete_product', methods=['POST'])
+    @login_required
+    def delete_product():
+        product_id = request.form.get("product_id")
+        if not product_id:
+            flash("Product ID is required.", "danger")
+            return redirect(url_for("inventory"))
+        db.insert_db("DELETE FROM products WHERE product_id = ?", (product_id,), single=True)
+        flash("Product deleted.")
+        return redirect(url_for("inventory"))
+
 
     dash_app = dash.Dash(__name__, server=app, url_base_pathname='/dashboard/')
 
